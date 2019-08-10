@@ -816,10 +816,9 @@ void GSRendererHW::SwSpriteRender()
 
 				// Apply TFX
 				ASSERT(tex0_tfx == 0 || tex0_tfx == 1);
-				sc = tex0_tfx == 0 ?
-					sc.mul16l(vc).srl16(7).clamp8() : // clamp((sc * vc) >> 7, 0, 255), srl16 is ok because 16 bit values are unsigned
-					sc
-				;
+				if (tex0_tfx == 0)
+					sc = sc.mul16l(vc).srl16(7).clamp8();  // clamp((sc * vc) >> 7, 0, 255), srl16 is ok because 16 bit values are unsigned
+
 				if (tex0_tcc == 0)
 					sc = sc.blend(vc, a_mask);
 			}
@@ -846,13 +845,16 @@ void GSRendererHW::SwSpriteRender()
 				ASSERT(m_context->ALPHA.D == 1);
 
 				// Flag C
-				GSVector4i sc_alpha_vec = alpha_c == 2 ?
-					GSVector4i(alpha_fix).xxxx().ps32() :
-					(alpha_c == 0 ? sc : dc0)
-					.yyww()     // 0x00AA00BB00AA00BB00aa00bb00aa00bb
-					.srl32(16)  // 0x000000AA000000AA000000aa000000aa
-					.ps32()     // 0x00AA00AA00aa00aa00AA00AA00aa00aa
-					.xxyy();    // 0x00AA00AA00AA00AA00aa00aa00aa00aa
+				GSVector4i sc_alpha_vec;
+
+				if (alpha_c == 2)
+					sc_alpha_vec = GSVector4i(alpha_fix).xxxx().ps32();
+				else
+					sc_alpha_vec = (alpha_c == 0 ? sc : dc0)
+						.yyww()     // 0x00AA00BB00AA00BB00aa00bb00aa00bb
+						.srl32(16)  // 0x000000AA000000AA000000aa000000aa
+						.ps32()     // 0x00AA00AA00aa00aa00AA00AA00aa00aa
+						.xxyy();    // 0x00AA00AA00AA00AA00aa00aa00aa00aa
 
 				switch (alpha_b)
 				{
@@ -1464,6 +1466,7 @@ GSRendererHW::Hacks::Hacks()
 	, m_cu(NULL)
 {
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::BigMuthaTruckers, CRC::RegionCount, &GSRendererHW::OI_BigMuthaTruckers));
+	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::DBZBT2, CRC::RegionCount, &GSRendererHW::OI_DBZBT2));
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::FFXII, CRC::EU, &GSRendererHW::OI_FFXII));
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::FFX, CRC::RegionCount, &GSRendererHW::OI_FFX));
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::MetalSlug6, CRC::RegionCount, &GSRendererHW::OI_MetalSlug6));
@@ -1477,10 +1480,8 @@ GSRendererHW::Hacks::Hacks()
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::Jak3, CRC::RegionCount, &GSRendererHW::OI_JakGames));
 	m_oi_list.push_back(HackEntry<OI_Ptr>(CRC::JakX, CRC::RegionCount, &GSRendererHW::OI_JakGames));
 
-	m_oo_list.push_back(HackEntry<OO_Ptr>(CRC::DBZBT2, CRC::RegionCount, &GSRendererHW::OO_DBZBT2));
 	m_oo_list.push_back(HackEntry<OO_Ptr>(CRC::MajokkoALaMode2, CRC::RegionCount, &GSRendererHW::OO_MajokkoALaMode2));
 
-	m_cu_list.push_back(HackEntry<CU_Ptr>(CRC::DBZBT2, CRC::RegionCount, &GSRendererHW::CU_DBZBT2));
 	m_cu_list.push_back(HackEntry<CU_Ptr>(CRC::MajokkoALaMode2, CRC::RegionCount, &GSRendererHW::CU_MajokkoALaMode2));
 	m_cu_list.push_back(HackEntry<CU_Ptr>(CRC::TalesOfAbyss, CRC::RegionCount, &GSRendererHW::CU_TalesOfAbyss));
 }
@@ -1719,6 +1720,25 @@ bool GSRendererHW::OI_BigMuthaTruckers(GSTexture* rt, GSTexture* ds, GSTextureCa
 	}
 
 	return true;
+}
+
+bool GSRendererHW::OI_DBZBT2(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
+{
+	// Sprite rendering
+	if (m_context->FRAME.PSM != PSM_PSMCT32)
+		return true;
+	if (PRIM->TME && m_context->TEX0.PSM != PSM_PSMCT32)
+		return true;
+	if (!(m_r == GSVector4i(0, 0, 64, 64)).alltrue())  // Rendering region is 64x64
+		return true;
+	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
+		return true;
+	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
+		return true;
+
+	SwSpriteRender();
+
+	return false; // Skip current draw
 }
 
 bool GSRendererHW::OI_FFXII(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
@@ -2159,25 +2179,6 @@ bool GSRendererHW::OI_JakGames(GSTexture* rt, GSTexture* ds, GSTextureCache::Sou
 
 // OO (others output?) hacks: invalidate extra local memory after the draw call
 
-void GSRendererHW::OO_DBZBT2()
-{
-	// palette readback (cannot detect yet, when fetching the texture later)
-
-	uint32 FBP = m_context->FRAME.Block();
-	uint32 TBP0 = m_context->TEX0.TBP0;
-
-	if(PRIM->TME && (FBP == 0x03c00 && TBP0 == 0x03c80 || FBP == 0x03ac0 && TBP0 == 0x03b40))
-	{
-		GIFRegBITBLTBUF BITBLTBUF;
-
-		BITBLTBUF.SBP = FBP;
-		BITBLTBUF.SBW = 1;
-		BITBLTBUF.SPSM = PSM_PSMCT32;
-
-		InvalidateLocalMem(BITBLTBUF, GSVector4i(0, 0, 64, 64));
-	}
-}
-
 void GSRendererHW::OO_MajokkoALaMode2()
 {
 	// palette readback
@@ -2197,15 +2198,6 @@ void GSRendererHW::OO_MajokkoALaMode2()
 }
 
 // Can Upscale hacks: disable upscaling for some draw calls
-
-bool GSRendererHW::CU_DBZBT2()
-{
-	// palette should stay 64 x 64
-
-	uint32 FBP = m_context->FRAME.Block();
-
-	return FBP != 0x03c00 && FBP != 0x03ac0;
-}
 
 bool GSRendererHW::CU_MajokkoALaMode2()
 {
