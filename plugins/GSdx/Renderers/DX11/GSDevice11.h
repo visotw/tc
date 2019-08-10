@@ -229,7 +229,9 @@ public:
 				uint32 point_sampler:1;
 				uint32 invalid_tex0:1; // Lupin the 3rd
 
-				uint32 _free:18;
+				uint32 tex_is_fb:1; // Jak shadows
+
+				uint32 _free:17;
 			};
 
 			uint64 key;

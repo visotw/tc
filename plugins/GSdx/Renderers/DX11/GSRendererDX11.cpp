@@ -835,6 +835,24 @@ void GSRendererDX11::DrawPrims(GSTexture* rt, GSTexture* ds, GSTextureCache::Sou
 	// Upscaling hack to avoid various line/grid issues
 	MergeSprite(tex);
 
+	// Detect framebuffer read that will need special handling
+	if ((m_context->FRAME.Block() == m_context->TEX0.TBP0) && PRIM->TME) { // && m_sw_blending) {
+		if ((m_context->FRAME.FBMSK == 0x00FFFFFF) && (m_vt.m_primclass == GS_TRIANGLE_CLASS)) {
+			// This pattern is used by several games to emulate a stencil (shadow)
+			// Ratchet & Clank, Jak do alpha integer multiplication (tfx) which is mostly equivalent to +1/-1
+			// Tri-Ace (Star Ocean 3/RadiataStories/VP2) uses a palette to handle the +1/-1
+			// GL_DBG("Source and Target are the same! Let's sample the framebuffer");
+			fprintf(stderr, "%d: Source and Target are the same! Let's sample the framebuffer\n", s_n);
+			m_ps_sel.tex_is_fb = 1;
+			// m_require_full_barrier = true;
+		}
+		/* else if (m_prim_overlap != PRIM_OVERLAP_NO) {
+			// Note: It is fine if the texture fits in a single GS page. First access will cache
+			// the page in the GS texture buffer.
+			GL_INS("ERROR: Source and Target are the same!");
+		} */
+	}
+
 	EmulateTextureShuffleAndFbmask();
 
 	// DATE: selection of the algorithm.

@@ -49,6 +49,7 @@
 #define PS_BLEND_B 0
 #define PS_BLEND_C 0
 #define PS_BLEND_D 0
+#define PS_TEX_IS_FB 0
 #endif
 
 #define SW_BLEND (PS_BLEND_A || PS_BLEND_B || PS_BLEND_D)
@@ -561,7 +562,7 @@ float4 tfx(float4 t, float4 c)
 
 void atst(float4 c)
 {
-	float a = trunc(c.a * 255 + 0.01);
+	float a = trunc(c.a * 255.0f);
 
 #if 0
     switch(Uber_ATST) {
@@ -645,6 +646,8 @@ float4 ps_color(PS_INPUT input)
 	float4 t = fetch_gXbY(int2(input.p.xy));
 #elif PS_DEPTH_FMT > 0
 	float4 t = sample_depth(st_int, input.p.xy);
+#elif PS_TEX_IS_FB == 1
+	float4 t = Texture.Load(int3(input.p.xy, 0));
 #else
 	float4 t = sample_color(st);
 #endif
@@ -914,6 +917,11 @@ void ps_blend(inout float4 Color, float As, float2 pos_xy)
 PS_OUTPUT ps_main(PS_INPUT input)
 {
 	float4 c = ps_color(input);
+#if PS_TEX_IS_FB == 1
+	// c = Texture.Load(int3(input.p.xy, 0));
+	// float4 RT = RtSampler.Load(int3(input.p.xy, 0));
+	// c = float4(0.0, 0.0, 0.0, 0.0); //  RtSampler.Sample(TextureSampler, input.ti.xy);
+#endif
 
 	PS_OUTPUT output;
 
