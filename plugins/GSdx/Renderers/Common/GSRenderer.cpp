@@ -637,7 +637,7 @@ void GSRenderer::DumpVertices(std::string& filename)
 	file << std::fixed << std::setprecision(4);
 	for (size_t i = 0; i < count; ++i)
 	{
-		file << "\t" << "v" << i << ": ";
+		file << "    " << "v" << i << ": ";
 		GSVertex v = buffer[m_index.buff[i]];
 
 		float x = (v.XYZ.X - m_context->XYOFFSET.OFX) / 16.0f;
@@ -655,7 +655,7 @@ void GSRenderer::DumpVertices(std::string& filename)
 	file << std::fixed << std::setprecision(6);
 	for (size_t i = 0; i < count; ++i)
 	{
-		file << "\t" << "v" << i << ": ";
+		file << "    " << "v" << i << ": ";
 		GSVertex v = buffer[m_index.buff[i]];
 
 		file << std::setfill('0') << std::setw(3) << unsigned(v.RGBAQ.R) << DEL;
@@ -673,7 +673,7 @@ void GSRenderer::DumpVertices(std::string& filename)
 	file << "TEXTURE COORDS (" << qualifier << ")" << std::endl;; 
 	for (size_t i = 0; i < count; ++i)
 	{
-		file << "\t" << "v" << i << ": ";
+		file << "    " << "v" << i << ": ";
 		GSVertex v = buffer[m_index.buff[i]];
 		
 		// note
@@ -698,19 +698,21 @@ void GSRenderer::DumpVertices(std::string& filename)
 
 	file << "TRACER" << std::endl;
 
-	GSVector4i v = m_vt.m_min.c;
-	file << "\tmin c (x,y,z,w): " << v.x << DEL << v.y << DEL << v.z << DEL << v.w << std::endl;
-	v = m_vt.m_max.c;
-	file << "\tmax c (x,y,z,w): " << v.x << DEL << v.y << DEL << v.z << DEL << v.w << std::endl;
+#define WRITE_VEC4(description, width, vec4) \
+	file << "    " << description << ": " \
+	<< std::setfill(' ') << std::setw(width) << vec4.x << DEL \
+	<< std::setfill(' ') << std::setw(width) << vec4.y << DEL \
+	<< std::setfill(' ') << std::setw(width) << vec4.z << DEL \
+	<< std::setfill(' ') << std::setw(width) << vec4.w << std::endl; \
 
-	GSVector4 v2 = m_vt.m_min.p;
-	file << "\tmin p (x,y,z,w): " << v2.x << DEL << v2.y << DEL << v2.z << DEL << v2.w << std::endl;
-	v2 = m_vt.m_max.p;
-	file << "\tmax p (x,y,z,w): " << v2.x << DEL << v2.y << DEL << v2.z << DEL << v2.w << std::endl;
-	v2 = m_vt.m_min.t;
-	file << "\tmin t (x,y,z,w): " << v2.x << DEL << v2.y << DEL << v2.z << DEL << v2.w << std::endl;
-	v2 = m_vt.m_max.t;
-	file << "\tmax t (x,y,z,w): " << v2.x << DEL << v2.y << DEL << v2.z << DEL << v2.w << std::endl;
+	WRITE_VEC4("min c (r,g,b,a)", 13, m_vt.m_min.c);
+	WRITE_VEC4("max c (r,g,b,a)", 13, m_vt.m_max.c);
+
+	WRITE_VEC4("min p (x,y,z,w)", 13, m_vt.m_min.p);
+	WRITE_VEC4("max p (x,y,z,w)", 13, m_vt.m_max.p);
+
+	WRITE_VEC4("min t (f,s,t,q)", 13, m_vt.m_min.t);
+	WRITE_VEC4("max t (f,s,t,q)", 13, m_vt.m_max.t);
 
 	file.close();
 }
