@@ -1256,7 +1256,7 @@ void GSRendererHW::Draw()
 			m_context->Dump(m_dump_root+s);
 
 			// dump vertices
-			s = format("%05d_vertex.txt", s_n);
+			s = format("%05d_vertex.ply", s_n);
 			DumpVertices(m_dump_root+s);
 		}
 

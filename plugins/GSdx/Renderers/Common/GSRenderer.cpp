@@ -623,59 +623,123 @@ void GSRenderer::PurgePool()
 
 void GSRenderer::DumpVertices(std::string& filename)
 {
+	// Dumps vertices in PLY format - http://paulbourke.net/dataformats/ply/
+
 	std::ofstream file(filename);
 
 	if (!file.is_open())
 		return;
 
-	size_t count = m_index.tail;
+	size_t count = m_vertex.tail;
 	GSVertex* buffer = &m_vertex.buff[0];
 
-	const char* DEL = ", ";
+	size_t indices_count = m_index.tail;
+	uint32* indices = &m_index.buff[0];
 
-	file << "VERTEX COORDS (XYZ)" << std::endl;
-	file << std::fixed << std::setprecision(4);
-	for (size_t i = 0; i < count; ++i)
-	{
-		file << "    " << "v" << i << ": ";
-		GSVertex v = buffer[m_index.buff[i]];
+#define COMMENT(ss) \
+	"comment " << ss \
 
-		float x = (v.XYZ.X - m_context->XYOFFSET.OFX) / 16.0f;
-		float y = (v.XYZ.Y - m_context->XYOFFSET.OFY) / 16.0f;
+#define WRITELINE(ssline) \
+	file << ssline << std::endl; \
+	
+	// Header
+	WRITELINE("ply");
+	WRITELINE("format ascii 1.0");
+	WRITELINE(COMMENT("filename: " << filename));
 
-		file << x << DEL;
-		file << y << DEL;
-		file << v.XYZ.Z;
-		file << std::endl;
-	}
-
-	file << std::endl;
-
-	file << "VERTEX COLOR (RGBA)" << std::endl;
-	file << std::fixed << std::setprecision(6);
-	for (size_t i = 0; i < count; ++i)
-	{
-		file << "    " << "v" << i << ": ";
-		GSVertex v = buffer[m_index.buff[i]];
-
-		file << std::setfill('0') << std::setw(3) << unsigned(v.RGBAQ.R) << DEL;
-		file << std::setfill('0') << std::setw(3) << unsigned(v.RGBAQ.G) << DEL;
-		file << std::setfill('0') << std::setw(3) << unsigned(v.RGBAQ.B) << DEL;
-		file << std::setfill('0') << std::setw(3) << unsigned(v.RGBAQ.A);
-		file << std::endl;
-	}
-
-	file << std::endl;
+	// Vertex element definition
+	WRITELINE("element vertex " << count);
+	WRITELINE("property float x");
+	WRITELINE("property float y");
+	WRITELINE("property float z");
+	WRITELINE("property uchar r");
+	WRITELINE("property uchar g");
+	WRITELINE("property uchar b");
+	WRITELINE("property uchar a");
 
 	bool use_uv = PRIM->FST;
-	std::string qualifier = use_uv ? "UV" : "STQ";
 
-	file << "TEXTURE COORDS (" << qualifier << ")" << std::endl;; 
+	if (use_uv)
+	{
+		WRITELINE("property float u");
+		WRITELINE("property float v");
+	}
+	else
+	{
+		WRITELINE("property float s");
+		WRITELINE("property float t");
+		WRITELINE("property float q");
+	}
+	std::string qualifier = use_uv ? "UV" : "STQ";
+	WRITELINE(COMMENT("VERTEX COORDS (XYZ) - VERTEX COLOR (RGBA) - " << "TEXTURE COORDS (" << qualifier << ")"));
+
+	// Face element definition
+	size_t elems_count = 1;
+	if (m_vt.m_primclass == GS_LINE_CLASS)
+		elems_count = 2;
+	else if (m_vt.m_primclass == GS_TRIANGLE_CLASS)
+		elems_count = 3;
+	else if (m_vt.m_primclass == GS_SPRITE_CLASS)
+		elems_count = 4;
+	WRITELINE("element face " << indices_count / elems_count);
+	WRITELINE(COMMENT("Each face contains " << elems_count << " vertices"));
+	// m_vt.m_primclass == GS_SPRITE_CLASS
+	/*
+	enum GS_PRIM_CLASS
+	{
+		GS_POINT_CLASS		= 0,
+		GS_LINE_CLASS		= 1,
+		GS_TRIANGLE_CLASS	= 2,
+		GS_SPRITE_CLASS		= 3,
+		GS_INVALID_CLASS	= 7,
+	};
+	*/
+	WRITELINE("property list uchar int vertex_index");
+	
+
+	// Tracer dump
+	WRITELINE(COMMENT("TRACER"));
+
+#define WRITE_VEC4(description, width, vec4) \
+	WRITELINE(COMMENT(description) << ": " \
+	<< std::setfill(' ') << std::setw(width) << vec4.x << " " \
+	<< std::setfill(' ') << std::setw(width) << vec4.y << " " \
+	<< std::setfill(' ') << std::setw(width) << vec4.z << " " \
+	<< std::setfill(' ') << std::setw(width) << vec4.w); \
+
+	WRITE_VEC4("min c (r,g,b,a)", 13, m_vt.m_min.c);
+	WRITE_VEC4("max c (r,g,b,a)", 13, m_vt.m_max.c);
+
+	WRITE_VEC4("min p (x,y,z,w)", 13, m_vt.m_min.p);
+	WRITE_VEC4("max p (x,y,z,w)", 13, m_vt.m_max.p);
+
+	WRITE_VEC4("min t (f,s,t,q)", 13, m_vt.m_min.t);
+	WRITE_VEC4("max t (f,s,t,q)", 13, m_vt.m_max.t);
+
+	WRITELINE("end_header");
+	// End of the header
+	
+	// Start of vertices list
+	file << std::fixed << std::setprecision(4);
+	const char* DEL = " ";
 	for (size_t i = 0; i < count; ++i)
 	{
-		file << "    " << "v" << i << ": ";
 		GSVertex v = buffer[m_index.buff[i]];
+
+		// XYZ
+		float x = (v.XYZ.X - m_context->XYOFFSET.OFX) / 16.0f;
+		float y = (v.XYZ.Y - m_context->XYOFFSET.OFY) / 16.0f;
+		file << x << DEL;
+		file << y << DEL;
+		file << std::log10f(v.XYZ.Z) << DEL;  // TODO Log z ??
 		
+		// RGBA
+		file << unsigned(v.RGBAQ.R) << DEL;
+		file << unsigned(v.RGBAQ.G) << DEL;
+		file << unsigned(v.RGBAQ.B) << DEL;
+		file << unsigned(v.RGBAQ.A) << DEL;
+
+		// UV/STQ
 		// note
 		// Yes, technically as far as the GS is concerned Q belongs
 		// to RGBAQ. However, the purpose of this dump is to print
@@ -693,26 +757,19 @@ void GSRenderer::DumpVertices(std::string& filename)
 
 		file << std::endl;
 	}
-
-	file << std::endl;
-
-	file << "TRACER" << std::endl;
-
-#define WRITE_VEC4(description, width, vec4) \
-	file << "    " << description << ": " \
-	<< std::setfill(' ') << std::setw(width) << vec4.x << DEL \
-	<< std::setfill(' ') << std::setw(width) << vec4.y << DEL \
-	<< std::setfill(' ') << std::setw(width) << vec4.z << DEL \
-	<< std::setfill(' ') << std::setw(width) << vec4.w << std::endl; \
-
-	WRITE_VEC4("min c (r,g,b,a)", 13, m_vt.m_min.c);
-	WRITE_VEC4("max c (r,g,b,a)", 13, m_vt.m_max.c);
-
-	WRITE_VEC4("min p (x,y,z,w)", 13, m_vt.m_min.p);
-	WRITE_VEC4("max p (x,y,z,w)", 13, m_vt.m_max.p);
-
-	WRITE_VEC4("min t (f,s,t,q)", 13, m_vt.m_min.t);
-	WRITE_VEC4("max t (f,s,t,q)", 13, m_vt.m_max.t);
+	// End of vertices list
+	
+	// Start of faces list
+	for (size_t i = 0; i < indices_count; ++i)
+	{
+		size_t vertex_in_face_index = i % elems_count;
+		if (vertex_in_face_index == 0)
+			file << elems_count;
+		file << DEL << indices[i];
+		if (vertex_in_face_index == elems_count - 1 || vertex_in_face_index == indices_count - 1)
+			file << std::endl;
+	}
+	// End of faces list
 
 	file.close();
 }
