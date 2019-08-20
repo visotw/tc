@@ -756,7 +756,7 @@ void GSRendererHW::SwSpriteRender()
 
 	GSVector4i r = m_r;  // Rectangle of the draw
 	ASSERT(r.x == 0 && r.y == 0);  // No offset
-	ASSERT(!texture_mapping_enabled || (r.z <= (1 << m_context->TEX0.TW)) && (r.w <= (1 << m_context->TEX0.TH)));  // Input texture is big enough, if any
+	ASSERT(!texture_mapping_enabled || (r.z == (1 << m_context->TEX0.TW)) && (r.w == (1 << m_context->TEX0.TH)));  // No texture mag/min, if any
 
 	trxreg.RRW = r.width();
 	trxreg.RRH = r.height();
