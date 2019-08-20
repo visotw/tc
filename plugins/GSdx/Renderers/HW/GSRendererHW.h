@@ -137,6 +137,7 @@ private:
 	float alpha0(int L, int X0, int X1);
 	float alpha1(int L, int X0, int X1);
 	void SwSpriteRender();
+	bool CanUseSwSpriteRender(bool allow_64x64_sprite);
 
 	template <bool linear> void RoundSpriteOffset();
 

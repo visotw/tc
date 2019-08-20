@@ -894,6 +894,49 @@ void GSRendererHW::SwSpriteRender()
 	}
 }
 
+bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
+{
+	bool r_0_0_16_16 = (m_r == GSVector4i(0, 0, 16, 16)).alltrue();
+	bool r_0_0_64_64 = (m_r == GSVector4i(0, 0, 64, 64)).alltrue();
+	if (!r_0_0_16_16 && !r_0_0_64_64)  // Rendering region is 16x16 or 64x64, without offset
+		return false;
+	if (r_0_0_64_64 && !allow_64x64_sprite)  // Rendering region 64x64 support is enabled via parameter
+		return false;
+	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
+		return false;
+	if (m_vt.m_primclass != GS_TRIANGLE_CLASS && m_vt.m_primclass != GS_SPRITE_CLASS)  // Triangle or sprite class prims
+		return false;
+	if (m_vt.m_primclass == GS_TRIANGLE_CLASS && (PRIM->PRIM != GS_TRIANGLESTRIP || m_vertex.tail != 4))  // If triangle class, strip draw with 4 vertices (two prims, emulating single sprite prim)
+		return false;
+	if (m_vt.m_primclass == GS_SPRITE_CLASS && (PRIM->PRIM != GS_SPRITE || m_vertex.tail != 2))  // If sprite class, sprite draw with 2 vertices (one prim)
+		return false;
+	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
+		return false;
+	if (m_context->FRAME.PSM != PSM_PSMCT32)  // Frame buffer format is 32 bit color
+		return false;
+	if (PRIM->TME)
+	{ 
+		// Texture mapping enabled
+
+		if (m_context->TEX0.PSM != PSM_PSMCT32)  // Input texture format is 32 bit color
+			return false;
+		if (IsMipMapDraw())  // No mipmapping
+			return false;
+		if (m_vt.m_min.t.x != 0 || m_vt.m_min.t.y != 0)  // No tex coords offset
+			return false;
+		if (abs(m_vt.m_max.t.x - m_r.z) > 1e-3 || abs(m_vt.m_max.t.y - m_r.w) > 1e-3)  // No texture width or height mag/min
+			return false;
+	}
+	
+	// The draw call is a good candidate for using the SwSpriteRender to replace the GPU draw
+	// However, some draw attributes might not be supported yet by the SwSpriteRender,
+	// so if any bug occurs in using it, enabling debug build would probably
+	// make failing some of the assertions used in the SwSpriteRender to highlight its limitations.
+	// In that case, either the condition can be added here to discard the draw, or the
+	// SwSpriteRender can be improved by adding the missing features.
+	return true;
+}
+
 template <bool linear>
 void GSRendererHW::RoundSpriteOffset()
 {
@@ -1724,19 +1767,9 @@ bool GSRendererHW::OI_BigMuthaTruckers(GSTexture* rt, GSTexture* ds, GSTextureCa
 bool GSRendererHW::OI_DBZBT2(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
 {
 	// Sprite rendering
-	if (m_context->FRAME.PSM != PSM_PSMCT32)
+	if (!CanUseSwSpriteRender(true))
 		return true;
-	if (PRIM->TME && m_context->TEX0.PSM != PSM_PSMCT32)
-		return true;
-	if (!(m_r == GSVector4i(0, 0, 64, 64)).alltrue())  // Rendering region is 64x64
-		return true;
-	if (PRIM->TME && (m_r.z != (1 << m_context->TEX0.TW) || m_r.w != (1 << m_context->TEX0.TH)))  // No texture width or height mag/min
-		return true;
-	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
-		return true;
-	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
-		return true;
-
+	
 	SwSpriteRender();
 
 	return false; // Skip current draw
@@ -2122,6 +2155,13 @@ bool GSRendererHW::OI_ItadakiStreet(GSTexture* rt, GSTexture* ds, GSTextureCache
 
 bool GSRendererHW::OI_JakGames(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
 {
+	if (!CanUseSwSpriteRender(false))
+		return true;
+
+	SwSpriteRender();
+
+	return false; // Skip current draw
+
 	GSVector4i r = GSVector4i(m_vt.m_min.p.xyxy(m_vt.m_max.p)).rintersect(GSVector4i(m_context->scissor.in));
 	GSVector4i r_p = GSVector4i(0, 0, 16, 16);
 
