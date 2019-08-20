@@ -1731,6 +1731,8 @@ bool GSRendererHW::OI_DBZBT2(GSTexture* rt, GSTexture* ds, GSTextureCache::Sourc
 		return true;
 	if (!(m_r == GSVector4i(0, 0, 64, 64)).alltrue())  // Rendering region is 64x64
 		return true;
+	if (PRIM->TME && (m_r.z != (1 << m_context->TEX0.TW) || m_r.w != (1 << m_context->TEX0.TH)))  // No texture width or height mag/min
+		return true;
 	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
 		return true;
 	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
