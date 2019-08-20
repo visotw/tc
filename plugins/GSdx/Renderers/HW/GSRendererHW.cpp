@@ -747,6 +747,9 @@ void GSRendererHW::SwSpriteRender()
 
 	GIFRegTRXPOS trxpos;
 
+	ASSERT(m_r.x == 0 && m_r.y == 0);  // No rendering region offset
+	ASSERT(!PRIM->TME || (m_vt.m_min.t.x == 0 && m_vt.m_min.t.y == 0));  // No input texture offset, if any
+
 	trxpos.DSAX = 0;
 	trxpos.DSAY = 0;
 	trxpos.SSAX = 0;
@@ -754,12 +757,8 @@ void GSRendererHW::SwSpriteRender()
 
 	GIFRegTRXREG trxreg;
 
-	GSVector4i r = m_r;  // Rectangle of the draw
-	ASSERT(r.x == 0 && r.y == 0);  // No offset
-	ASSERT(!texture_mapping_enabled || (r.z == (1 << m_context->TEX0.TW)) && (r.w == (1 << m_context->TEX0.TH)));  // No texture mag/min, if any
-
-	trxreg.RRW = r.width();
-	trxreg.RRH = r.height();
+	trxreg.RRW = m_r.width();
+	trxreg.RRH = m_r.height();
 
 	// SW rendering code, mainly taken from GSState::Move(), TRXPOS.DIR{X,Y} management excluded
 
