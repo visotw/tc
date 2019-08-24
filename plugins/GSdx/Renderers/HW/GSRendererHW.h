@@ -137,9 +137,10 @@ private:
 	float alpha0(int L, int X0, int X1);
 	float alpha1(int L, int X0, int X1);
 	void SwSpriteRender();
-	bool CanUseSwSpriteRender(bool allow_64x64_sprite);
-	void TextureWrap(uint32& u, uint32&v);
-
+	bool CanUseSwSpriteRender();
+	uint32 TextureWrap(int c, uint32 wm, uint32 size, uint32 min, uint32 max);
+	uint32 TextureWrapU(int u);
+	uint32 TextureWrapV(int v);
 	template <bool linear> void RoundSpriteOffset();
 
 protected:

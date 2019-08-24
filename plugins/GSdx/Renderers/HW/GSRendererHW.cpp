@@ -752,8 +752,11 @@ void GSRendererHW::SwSpriteRender()
 
 	trxpos.DSAX = (uint32)m_r.x;
 	trxpos.DSAY = (uint32)m_r.y;
-	trxpos.SSAX = (uint32)m_vt.m_min.t.x;  // TODO Implement UV wrapping
-	trxpos.SSAY = (uint32)m_vt.m_min.t.y;
+
+	GSVector4i tex_r;
+	GetTextureMinMax(tex_r, m_context->TEX0, m_context->CLAMP, m_vt.IsLinear());
+	trxpos.SSAX = tex_r.x;
+	trxpos.SSAY = tex_r.y;
 
 	GIFRegTRXREG trxreg;
 
@@ -800,27 +803,43 @@ void GSRendererHW::SwSpriteRender()
 
 	for (int y = 0; y < h; y++, ++sy, ++dy)
 	{
-		uint32* RESTRICT s = texture_mapping_enabled ? &m_mem.m_vm32[spo->pixel.row[sy]] : nullptr;
+		uint32* RESTRICT s;
+		uint32 v;
+		if (texture_mapping_enabled)
+		{
+			v = TextureWrapV(sy);
+			s = &m_mem.m_vm32[spo->pixel.row[v]];
+		}
+		else
+		{
+			s = nullptr;
+			v = 0;
+		}
 		uint32* RESTRICT d = &m_mem.m_vm32[dpo->pixel.row[dy]];
 
 		for (int x = 0; x < w; ++x)
 		{
 			// fprintf(stderr, "y x %d %d\n", y, x);
 			bool two_more = x + 1 < w;
-			bool fast_s_read = two_more && texture_mapping_enabled && (scol[x] + 1) == scol[x + 1];  // Source pixel pair is adjacent in memory
 			bool fast_d_rw = two_more && (dcol[x] + 1) == dcol[x + 1];  // Destination pixel pair is adjacent in memory
 			GSVector4i sc;
 			if (texture_mapping_enabled)
 			{
 				// Read 2 source pixel colors
+				uint32 u = TextureWrapU(x);
 
-				// TODO Implement UV wrapping
-				if (fast_s_read)
-					sc = GSVector4i::loadl(&s[scol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
-				else if (two_more)
-					sc = GSVector4i(s[scol[x]], s[scol[x + 1]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				if (!two_more)
+					sc = GSVector4i(s[scol[u]]).u8to16();  // 0x000000000000000000aa00bb00gg00rr
 				else
-					sc = GSVector4i(s[scol[x]]).u8to16();  // 0x000000000000000000aa00bb00gg00rr
+				{
+					uint32 u_next = TextureWrapU(x + 1);
+					bool fast_s_read = (scol[u] + 1) == scol[u_next];  // Source pixel pair is adjacent in memory
+
+					if (fast_s_read)
+						sc = GSVector4i::loadl(&s[scol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+					else
+						sc = GSVector4i(s[scol[u]], s[scol[u_next]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				}
 
 				// Apply TFX
 				ASSERT(tex0_tfx == 0 || tex0_tfx == 1);
@@ -917,31 +936,35 @@ void GSRendererHW::SwSpriteRender()
 	}
 }
 
-bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
+bool GSRendererHW::CanUseSwSpriteRender()
 {
-	/*if (m_r.x > 2 || m_r.y > 2)
+	if (PRIM->IIP)  // Flat shading method
 		return false;
-	if (m_r.width() > 64 || m_r.height() > 64)
-		return false;*/
-	/*bool r_0_0_16_16 = (m_r == GSVector4i(0, 0, 16, 16)).alltrue();
-	bool r_0_0_64_64 = (m_r == GSVector4i(0, 0, 64, 64)).alltrue();
-	if (!r_0_0_16_16 && !r_0_0_64_64)  // Rendering region is 16x16 or 64x64, without offset
-		return false;
-	if (r_0_0_64_64 && !allow_64x64_sprite)  // Rendering region 64x64 support is enabled via parameter
-		return false;*/
 	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
 		return false;
 	if (m_vt.m_primclass != GS_TRIANGLE_CLASS && m_vt.m_primclass != GS_SPRITE_CLASS)  // Triangle or sprite class prims
 		return false;
 	if (PRIM->PRIM != GS_TRIANGLESTRIP && PRIM->PRIM != GS_SPRITE)  // Triangle strip or sprite draw
 		return false;
-	if (m_vt.m_primclass == GS_TRIANGLE_CLASS && (PRIM->PRIM != GS_TRIANGLESTRIP || m_vertex.tail != 4))  // If triangle class, strip draw with 4 vertices (two prims, emulating single sprite prim)
+	if (m_vt.m_primclass == GS_TRIANGLE_CLASS && (PRIM->PRIM != GS_TRIANGLESTRIP || m_vertex.next != 4))  // If triangle class, strip draw with 4 vertices (two prims, emulating single sprite prim)
 		return false;
 	if (m_vt.m_primclass == GS_TRIANGLE_CLASS)
 	{
+		size_t count = m_vertex.next;
+		GSVertex* v = &m_vertex.buff[0];
+
+		for (size_t i = 0; i < count; ++i)
+		{
+			fprintf(stderr, "%d %d\n", v[i].XYZ.X, v[i].XYZ.Y);
+			if (v[i].XYZ.X != m_r.x && v[i].XYZ.X != m_r.z)
+				return false;
+			if (v[i].XYZ.Y != m_r.y && v[i].XYZ.Y != m_r.w)
+				return false;
+			fprintf(stderr, "%d %d\n", v[i].XYZ.X, v[i].XYZ.Y);
+		}
 		// TODO Check that the draw is axis aligned
 	}
-	if (m_vt.m_primclass == GS_SPRITE_CLASS && (PRIM->PRIM != GS_SPRITE || m_vertex.tail != 2))  // If sprite class, sprite draw with 2 vertices (one prim)
+	if (m_vt.m_primclass == GS_SPRITE_CLASS && (PRIM->PRIM != GS_SPRITE || m_vertex.next != 2))  // If sprite class, sprite draw with 2 vertices (one prim)
 		return false;
 	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
 		return false;
@@ -955,11 +978,14 @@ bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
 			return false;
 		if (IsMipMapDraw())  // No mipmapping
 			return false;
-		float tex_w = m_vt.m_max.t.x - m_vt.m_min.t.x;  // TODO Implement UV wrapping
-		float tex_h = m_vt.m_max.t.y - m_vt.m_min.t.y;  // TODO Implement UV wrapping
-		float tolerance = 1e-3;
-		if (abs(tex_w - m_r.width()) > tolerance || abs(tex_h - m_r.height()) > tolerance)  // No texture width or height mag/min
-			return false;
+
+		/*GSVector4i tex_r;
+		GetTextureMinMax(tex_r, m_context->TEX0, m_context->CLAMP, m_vt.IsLinear());
+		if (tex_r.width() != m_r.width() || tex_r.height() != m_r.height())
+			return false;*/
+		/*float tolerance = 1e-3;
+		if (abs(tex_w - (uint32)m_r.width()) > tolerance || abs(tex_h - (uint32)m_r.height()) > tolerance)  // No texture width or height mag/min
+			return false;*/
 	}
 	
 	// The draw call is a good candidate for using the SwSpriteRender to replace the GPU draw
@@ -971,24 +997,53 @@ bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
 	return true;
 }
 
-void GSRendererHW::TextureWrap(uint32& u, uint32&v)
+uint32 GSRendererHW::TextureWrap(int c, uint32 wm, uint32 size, uint32 min, uint32 max)
 {
-	uint32 usize = 1 << m_context->TEX0.TW;
-	uint32 vsize = 1 << m_context->TEX0.TH;
-	
-	// REPEAT Mode
-	u = u % usize;
-	v = v % vsize;
+	uint32 c1;
+	switch (wm)
+	{
+	case CLAMP_REPEAT:
+		c1 = c % size;
+		break;
+	case CLAMP_CLAMP:
+		c1 = (uint32)std::max(0, std::min(c, (int)size));
+		break;
+	case CLAMP_REGION_CLAMP:
+		ASSERT(!IsMipMapDraw());
+		c1 = (uint32)std::max((int)min, std::min(c, (int)max));
+		break;
+	case CLAMP_REGION_REPEAT:
+		c1 = (c & min) | max;
+	default:
+		ASSERT(false);
+		c1 = (uint32)c;
+		break;
+	}
+	return c1;
+}
 
-	// TODO Set different if CLAMP or REGION_CLAMP
-	uint32 minu = 0;
-	uint32 minv = 0;
-	uint32 maxu = usize;
-	uint32 maxv = vsize;
+uint32 GSRendererHW::TextureWrapU(int u)
+{
+	// Horizontal U/S
+	GIFRegCLAMP clamp = m_context->CLAMP;
+	uint32 wm = clamp.WMS;
+	uint32 size = 1 << m_context->TEX0.TW;
+	uint32 min = clamp.MINU;
+	uint32 max = clamp.MAXU;
+
+	return TextureWrap(u, wm, size, min, max);
+}
+
+uint32 GSRendererHW::TextureWrapV(int v)
+{
+	// Vertical V/T
+	GIFRegCLAMP clamp = m_context->CLAMP;
+	uint32 wm = clamp.WMT;
+	uint32 size = 1 << m_context->TEX0.TH;
+	uint32 min = clamp.MINV;
+	uint32 max = clamp.MAXV;
 	
-	// CLAMP|REGION_CLAMP Mode
-	u = std::max(minu, std::min(u, maxu));
-	v = std::max(minv, std::min(u, maxv));
+	return TextureWrap(v, wm, size, min, max);
 }
 
 template <bool linear>
@@ -1821,7 +1876,7 @@ bool GSRendererHW::OI_BigMuthaTruckers(GSTexture* rt, GSTexture* ds, GSTextureCa
 bool GSRendererHW::OI_DBZBT2(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
 {
 	// Sprite rendering
-	if (!CanUseSwSpriteRender(true))
+	if (!CanUseSwSpriteRender())
 		return true;
 	
 	SwSpriteRender();
@@ -2209,20 +2264,20 @@ bool GSRendererHW::OI_ItadakiStreet(GSTexture* rt, GSTexture* ds, GSTextureCache
 
 bool GSRendererHW::OI_JakGames(GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t)
 {
-	if (!CanUseSwSpriteRender(false))
-		return true;
-
-	SwSpriteRender();
-
-	return false; // Skip current draw
-
 	GSVector4i r = GSVector4i(m_vt.m_min.p.xyxy(m_vt.m_max.p)).rintersect(GSVector4i(m_context->scissor.in));
 	GSVector4i r_p = GSVector4i(0, 0, 16, 16);
 
 	if (!(r == r_p).alltrue())
 		return true;
 
+	if (!CanUseSwSpriteRender())
+		return true;
+
 	// Rendering 16x16 palette
+
+	SwSpriteRender();
+
+	return false; // Skip current draw
 
 	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || m_vt.m_eq.q != 0x1)
 		return true;
