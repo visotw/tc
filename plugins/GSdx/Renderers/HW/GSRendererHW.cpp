@@ -747,13 +747,13 @@ void GSRendererHW::SwSpriteRender()
 
 	GIFRegTRXPOS trxpos;
 
-	ASSERT(m_r.x == 0 && m_r.y == 0);  // No rendering region offset
-	ASSERT(!PRIM->TME || (m_vt.m_min.t.x == 0 && m_vt.m_min.t.y == 0));  // No input texture offset, if any
+	// ASSERT(m_r.x == 0 && m_r.y == 0);  // No rendering region offset
+	// ASSERT(!PRIM->TME || (m_vt.m_min.t.x == 0 && m_vt.m_min.t.y == 0));  // No input texture offset, if any
 
-	trxpos.DSAX = 0;
-	trxpos.DSAY = 0;
-	trxpos.SSAX = 0;
-	trxpos.SSAY = 0;
+	trxpos.DSAX = (uint32)m_r.x;
+	trxpos.DSAY = (uint32)m_r.y;
+	trxpos.SSAX = (uint32)m_vt.m_min.t.x;  // TODO Implement UV wrapping
+	trxpos.SSAY = (uint32)m_vt.m_min.t.y;
 
 	GIFRegTRXREG trxreg;
 
@@ -770,6 +770,7 @@ void GSRendererHW::SwSpriteRender()
 	int h = trxreg.RRH;
 
 	GL_INS("SwSpriteRender: Dest 0x%x W:%d F:%s, size(%d %d)", bitbltbuf.DBP, bitbltbuf.DBW, psm_str(bitbltbuf.DPSM), w, h);
+	GL_INS("sx sy dx dy: %d %d %d %d", sx, sy, dx, dy);
 
 	if (texture_mapping_enabled)
 		InvalidateLocalMem(bitbltbuf, GSVector4i(sx, sy, sx + w, sy + h));
@@ -802,16 +803,24 @@ void GSRendererHW::SwSpriteRender()
 		uint32* RESTRICT s = texture_mapping_enabled ? &m_mem.m_vm32[spo->pixel.row[sy]] : nullptr;
 		uint32* RESTRICT d = &m_mem.m_vm32[dpo->pixel.row[dy]];
 
-		ASSERT(w % 2 == 0);
-
-		for (int x = 0; x < w; x += 2)
+		for (int x = 0; x < w; ++x)
 		{
+			// fprintf(stderr, "y x %d %d\n", y, x);
+			bool two_more = x + 1 < w;
+			bool fast_s_read = two_more && texture_mapping_enabled && (scol[x] + 1) == scol[x + 1];  // Source pixel pair is adjacent in memory
+			bool fast_d_rw = two_more && (dcol[x] + 1) == dcol[x + 1];  // Destination pixel pair is adjacent in memory
 			GSVector4i sc;
 			if (texture_mapping_enabled)
 			{
 				// Read 2 source pixel colors
-				ASSERT((scol[x] + 1) == scol[x + 1]);  // Source pixel pair is adjacent in memory
-				sc = GSVector4i::loadl(&s[scol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+
+				// TODO Implement UV wrapping
+				if (fast_s_read)
+					sc = GSVector4i::loadl(&s[scol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				else if (two_more)
+					sc = GSVector4i(s[scol[x]], s[scol[x + 1]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				else
+					sc = GSVector4i(s[scol[x]]).u8to16();  // 0x000000000000000000aa00bb00gg00rr
 
 				// Apply TFX
 				ASSERT(tex0_tfx == 0 || tex0_tfx == 1);
@@ -832,8 +841,12 @@ void GSRendererHW::SwSpriteRender()
 			if (alpha_blending_enabled || fb_mask_enabled)
 			{
 				// Read 2 destination pixel colors
-				ASSERT((dcol[x] + 1) == dcol[x + 1]);  // Destination pixel pair is adjacent in memory
-				dc0 = GSVector4i::loadl(&d[dcol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				if (fast_d_rw)
+					dc0 = GSVector4i::loadl(&d[dcol[x]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				else if (two_more)
+					dc0 = GSVector4i(d[dcol[x]], d[dcol[x + 1]]).u8to16();  // 0x00AA00BB00GG00RR00aa00bb00gg00rr
+				else
+					dc0 = GSVector4i(d[dcol[x]]).u8to16();  // 0x000000000000000000aa00bb00gg00rr
 			}
 
 			if (alpha_blending_enabled)
@@ -888,26 +901,46 @@ void GSRendererHW::SwSpriteRender()
 
 			// Store 2 pixel colors
 			dc = dc.pu16(GSVector4i::zero());  // 0x0000000000000000AABBGGRRaabbggrr
-			ASSERT((dcol[x] + 1) == dcol[x + 1]);  // Destination pixel pair is adjacent in memory
-			GSVector4i::storel(&d[dcol[x]], dc);
+			if (fast_d_rw)
+				GSVector4i::storel(&d[dcol[x]], dc);
+			else if (two_more)
+			{
+				d[dcol[x]] = dc.u32[0];
+				d[dcol[x + 1]] = dc.u32[1];
+			}
+			else
+				d[dcol[x]] = dc.u32[0];
+
+			if (two_more)
+				++x;
 		}
 	}
 }
 
 bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
 {
-	bool r_0_0_16_16 = (m_r == GSVector4i(0, 0, 16, 16)).alltrue();
+	/*if (m_r.x > 2 || m_r.y > 2)
+		return false;
+	if (m_r.width() > 64 || m_r.height() > 64)
+		return false;*/
+	/*bool r_0_0_16_16 = (m_r == GSVector4i(0, 0, 16, 16)).alltrue();
 	bool r_0_0_64_64 = (m_r == GSVector4i(0, 0, 64, 64)).alltrue();
 	if (!r_0_0_16_16 && !r_0_0_64_64)  // Rendering region is 16x16 or 64x64, without offset
 		return false;
 	if (r_0_0_64_64 && !allow_64x64_sprite)  // Rendering region 64x64 support is enabled via parameter
-		return false;
+		return false;*/
 	if (m_vt.m_eq.rgba != 0xffff || m_vt.m_eq.z != 0x1 || (PRIM->TME && !PRIM->FST && m_vt.m_eq.q != 0x1))  // No rasterization
 		return false;
 	if (m_vt.m_primclass != GS_TRIANGLE_CLASS && m_vt.m_primclass != GS_SPRITE_CLASS)  // Triangle or sprite class prims
 		return false;
+	if (PRIM->PRIM != GS_TRIANGLESTRIP && PRIM->PRIM != GS_SPRITE)  // Triangle strip or sprite draw
+		return false;
 	if (m_vt.m_primclass == GS_TRIANGLE_CLASS && (PRIM->PRIM != GS_TRIANGLESTRIP || m_vertex.tail != 4))  // If triangle class, strip draw with 4 vertices (two prims, emulating single sprite prim)
 		return false;
+	if (m_vt.m_primclass == GS_TRIANGLE_CLASS)
+	{
+		// TODO Check that the draw is axis aligned
+	}
 	if (m_vt.m_primclass == GS_SPRITE_CLASS && (PRIM->PRIM != GS_SPRITE || m_vertex.tail != 2))  // If sprite class, sprite draw with 2 vertices (one prim)
 		return false;
 	if (m_context->DepthRead() || m_context->DepthWrite())  // No depth handling
@@ -922,9 +955,10 @@ bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
 			return false;
 		if (IsMipMapDraw())  // No mipmapping
 			return false;
-		if (m_vt.m_min.t.x != 0 || m_vt.m_min.t.y != 0)  // No tex coords offset
-			return false;
-		if (abs(m_vt.m_max.t.x - m_r.z) > 1e-3 || abs(m_vt.m_max.t.y - m_r.w) > 1e-3)  // No texture width or height mag/min
+		float tex_w = m_vt.m_max.t.x - m_vt.m_min.t.x;  // TODO Implement UV wrapping
+		float tex_h = m_vt.m_max.t.y - m_vt.m_min.t.y;  // TODO Implement UV wrapping
+		float tolerance = 1e-3;
+		if (abs(tex_w - m_r.width()) > tolerance || abs(tex_h - m_r.height()) > tolerance)  // No texture width or height mag/min
 			return false;
 	}
 	
@@ -935,6 +969,26 @@ bool GSRendererHW::CanUseSwSpriteRender(bool allow_64x64_sprite)
 	// In that case, either the condition can be added here to discard the draw, or the
 	// SwSpriteRender can be improved by adding the missing features.
 	return true;
+}
+
+void GSRendererHW::TextureWrap(uint32& u, uint32&v)
+{
+	uint32 usize = 1 << m_context->TEX0.TW;
+	uint32 vsize = 1 << m_context->TEX0.TH;
+	
+	// REPEAT Mode
+	u = u % usize;
+	v = v % vsize;
+
+	// TODO Set different if CLAMP or REGION_CLAMP
+	uint32 minu = 0;
+	uint32 minv = 0;
+	uint32 maxu = usize;
+	uint32 maxv = vsize;
+	
+	// CLAMP|REGION_CLAMP Mode
+	u = std::max(minu, std::min(u, maxu));
+	v = std::max(minv, std::min(u, maxv));
 }
 
 template <bool linear>
