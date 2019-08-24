@@ -625,64 +625,94 @@ void GSRenderer::DumpVertices(std::string& filename)
 {
 	// Dumps vertices in PLY format - http://paulbourke.net/dataformats/ply/
 
+	if (m_vt.m_primclass == GS_SPRITE_CLASS)
+		return;
+
 	std::ofstream file(filename);
 
 	if (!file.is_open())
 		return;
 
-	size_t count = m_vertex.tail;
-	GSVertex* buffer = &m_vertex.buff[0];
+	size_t vcount = m_vertex.tail;
+	GSVertex* vbuff = &m_vertex.buff[m_vertex.head];
 
-	size_t indices_count = m_index.tail;
-	uint32* indices = &m_index.buff[0];
-
-#define COMMENT(ss) \
+#define GSR_DV_COMMENT(ss) \
 	"comment " << ss \
 
-#define WRITELINE(ssline) \
+#define GSR_DV_WRITELINE(ssline) \
 	file << ssline << std::endl; \
 	
 	// Header
-	WRITELINE("ply");
-	WRITELINE("format ascii 1.0");
-	WRITELINE(COMMENT("filename: " << filename));
+	GSR_DV_WRITELINE("ply");
+	GSR_DV_WRITELINE("format ascii 1.0");
+	GSR_DV_WRITELINE(GSR_DV_COMMENT("filename: " << filename));
 
 	// Vertex element definition
-	WRITELINE("element vertex " << count);
-	WRITELINE("property float x");
-	WRITELINE("property float y");
-	WRITELINE("property float z");
-	WRITELINE("property uchar r");
-	WRITELINE("property uchar g");
-	WRITELINE("property uchar b");
-	WRITELINE("property uchar a");
+	GSR_DV_WRITELINE("element vertex " << vcount);
+	GSR_DV_WRITELINE("property float x");
+	GSR_DV_WRITELINE("property float y");
+	GSR_DV_WRITELINE("property float z");
+	GSR_DV_WRITELINE("property uchar r");
+	GSR_DV_WRITELINE("property uchar g");
+	GSR_DV_WRITELINE("property uchar b");
+	GSR_DV_WRITELINE("property uchar a");
 
 	bool use_uv = PRIM->FST;
 
 	if (use_uv)
 	{
-		WRITELINE("property float u");
-		WRITELINE("property float v");
+		GSR_DV_WRITELINE("property float u");
+		GSR_DV_WRITELINE("property float v");
 	}
 	else
 	{
-		WRITELINE("property float s");
-		WRITELINE("property float t");
-		WRITELINE("property float q");
+		GSR_DV_WRITELINE("property float s");
+		GSR_DV_WRITELINE("property float t");
+		GSR_DV_WRITELINE("property float q");
 	}
 	std::string qualifier = use_uv ? "UV" : "STQ";
-	WRITELINE(COMMENT("VERTEX COORDS (XYZ) - VERTEX COLOR (RGBA) - " << "TEXTURE COORDS (" << qualifier << ")"));
+	// GSR_DV_WRITELINE(GSR_DV_COMMENT("VERTEX COORDS (XYZ) - VERTEX COLOR (RGBA) - " << "TEXTURE COORDS (" << qualifier << ")"));
 
 	// Face element definition
-	size_t elems_count = 1;
-	if (m_vt.m_primclass == GS_LINE_CLASS)
-		elems_count = 2;
-	else if (m_vt.m_primclass == GS_TRIANGLE_CLASS)
-		elems_count = 3;
-	else if (m_vt.m_primclass == GS_SPRITE_CLASS)
-		elems_count = 4;
-	WRITELINE("element face " << indices_count / elems_count);
-	WRITELINE(COMMENT("Each face contains " << elems_count << " vertices"));
+	size_t v_per_face = 0;
+	size_t fcount = 0;
+	switch (m_vt.m_primclass)
+	{
+	case GS_POINT_CLASS:
+		v_per_face = 1;
+		break;
+	case GS_LINE_CLASS:
+	case GS_SPRITE_CLASS:
+		v_per_face = 2;
+		break;
+	case GS_TRIANGLE_CLASS:
+		v_per_face = 3;
+		break;
+	default:
+		break;
+	}
+	ASSERT(v_per_face > 0);
+
+	switch (PRIM->PRIM)
+	{
+	case GS_POINTLIST:
+	case GS_LINELIST:
+	case GS_TRIANGLELIST:
+	case GS_SPRITE:
+		fcount = vcount / v_per_face;
+		break;
+	case GS_LINESTRIP:
+	case GS_TRIANGLESTRIP:
+	case GS_TRIANGLEFAN:
+		fcount = vcount - v_per_face + 1;
+		break;
+	default:
+		ASSERT(false);
+		break;
+	}
+
+	//GSR_DV_WRITELINE(GSR_DV_COMMENT("Each face contains " << v_per_face << " vertices"));
+	GSR_DV_WRITELINE("element face " << fcount);
 	// m_vt.m_primclass == GS_SPRITE_CLASS
 	/*
 	enum GS_PRIM_CLASS
@@ -694,44 +724,44 @@ void GSRenderer::DumpVertices(std::string& filename)
 		GS_INVALID_CLASS	= 7,
 	};
 	*/
-	WRITELINE("property list uchar int vertex_index");
+	GSR_DV_WRITELINE("property list uchar int vertex_index");
 	
 
 	// Tracer dump
-	WRITELINE(COMMENT("TRACER"));
+	// GSR_DV_WRITELINE(GSR_DV_COMMENT("TRACER"));
 
 #define WRITE_VEC4(description, width, vec4) \
-	WRITELINE(COMMENT(description) << ": " \
+	GSR_DV_WRITELINE(GSR_DV_COMMENT(description) << ": " \
 	<< std::setfill(' ') << std::setw(width) << vec4.x << " " \
 	<< std::setfill(' ') << std::setw(width) << vec4.y << " " \
 	<< std::setfill(' ') << std::setw(width) << vec4.z << " " \
 	<< std::setfill(' ') << std::setw(width) << vec4.w); \
 
-	WRITE_VEC4("min c (r,g,b,a)", 13, m_vt.m_min.c);
+	/*WRITE_VEC4("min c (r,g,b,a)", 13, m_vt.m_min.c);
 	WRITE_VEC4("max c (r,g,b,a)", 13, m_vt.m_max.c);
 
 	WRITE_VEC4("min p (x,y,z,w)", 13, m_vt.m_min.p);
 	WRITE_VEC4("max p (x,y,z,w)", 13, m_vt.m_max.p);
 
 	WRITE_VEC4("min t (f,s,t,q)", 13, m_vt.m_min.t);
-	WRITE_VEC4("max t (f,s,t,q)", 13, m_vt.m_max.t);
+	WRITE_VEC4("max t (f,s,t,q)", 13, m_vt.m_max.t);*/
 
-	WRITELINE("end_header");
+	GSR_DV_WRITELINE("end_header");
 	// End of the header
 	
 	// Start of vertices list
 	file << std::fixed << std::setprecision(4);
 	const char* DEL = " ";
-	for (size_t i = 0; i < count; ++i)
+	for (size_t i = 0; i < vcount; ++i)
 	{
-		GSVertex v = buffer[m_index.buff[i]];
+		GSVertex v = vbuff[i];
 
 		// XYZ
 		float x = (v.XYZ.X - m_context->XYOFFSET.OFX) / 16.0f;
 		float y = (v.XYZ.Y - m_context->XYOFFSET.OFY) / 16.0f;
 		file << x << DEL;
 		file << y << DEL;
-		file << std::log10f(v.XYZ.Z) << DEL;  // TODO Log z ??
+		file << v.XYZ.Z << DEL;
 		
 		// RGBA
 		file << unsigned(v.RGBAQ.R) << DEL;
@@ -760,14 +790,42 @@ void GSRenderer::DumpVertices(std::string& filename)
 	// End of vertices list
 	
 	// Start of faces list
-	for (size_t i = 0; i < indices_count; ++i)
+	for (size_t i = v_per_face - 1; i < vcount; )
 	{
-		size_t vertex_in_face_index = i % elems_count;
-		if (vertex_in_face_index == 0)
-			file << elems_count;
-		file << DEL << indices[i];
-		if (vertex_in_face_index == elems_count - 1 || vertex_in_face_index == indices_count - 1)
-			file << std::endl;
+		file << v_per_face << DEL;
+		switch (PRIM->PRIM)
+		{
+		case GS_POINTLIST:
+			file << i << std::endl;
+			++i;
+			break;
+		case GS_LINELIST:
+			file << i - 1 << DEL << i << std::endl;
+			i += 2;
+			break;
+		case GS_TRIANGLELIST:
+			file << i - 2 << DEL << i - 1 << DEL << i << std::endl;
+			i += 3;
+			break;
+		case GS_LINESTRIP:
+			file << i - 1 << DEL << i << std::endl;
+			i += i == 0 ? 2 : 1;
+			break;
+		case GS_TRIANGLESTRIP:
+			file << i - 2 << DEL << i - 1 << DEL << i << std::endl;
+			i += i == 0 ? 3 : 1;
+			break;
+		case GS_TRIANGLEFAN:
+			file << 1 << DEL << i - 1 << DEL << i << std::endl;
+			i += i == 0 ? 3 : 1;
+			break;
+		case GS_SPRITE:
+			ASSERT(false);
+			break;
+		default:
+			ASSERT(false);
+			break;
+		}
 	}
 	// End of faces list
 
