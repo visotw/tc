@@ -819,6 +819,9 @@ void GSTextureCache::InvalidateVideoMem(GSOffset* off, const GSVector4i& rect, b
 
 	bool found = false;
 
+	std::unordered_set<uint32> draw_blocks;
+	bool draw_blocks_init = false;
+
 	for(const uint32* p = pages; *p != GSOffset::EOP; p++)
 	{
 		uint32 page = *p;
@@ -865,9 +868,32 @@ void GSTextureCache::InvalidateVideoMem(GSOffset* off, const GSVector4i& rect, b
 				else
 				{
 					// render target used as input texture
-					// TODO
-
 					b |= bp == s->m_from_target_TEX0.TBP0;
+
+					if (!b)
+					{
+						if (!draw_blocks_init)
+						{
+							// Lazy draw blocks computation
+							GSLocalMemory::psm_t draw_psm_t = GSLocalMemory::m_psm[psm];
+							GSVector2i draw_block_size = GetBlockSize(psm);
+							uint32 draw_blocks_count_ub = (1 + rect.width() / draw_block_size.x) * (1 + rect.height() / draw_block_size.y);
+							draw_blocks.reserve(draw_blocks_count_ub);
+							for (int x = rect.x; x < rect.z; x += draw_block_size.x)
+							{
+								for (int y = rect.y; y < rect.w; y += draw_block_size.y)
+								{
+									uint32 bpi = draw_psm_t.bn(x, y, bp, bw);
+									draw_blocks.emplace(bpi);
+								}
+							}
+							draw_blocks_init = true;
+							GL_CACHE("TC: InvalidateVideoMem computed %d blocks for draw at BP 0x%x r(%d, %d, %d, %d).",
+								draw_blocks.size(), bp, rect.x, rect.y, rect.z, rect.w);
+						}
+						// Invalidate texture if its memory region overlaps the memory region of the current draw
+						b = CheckOverlaps(draw_blocks, s->m_TEX0.PSM, 1 << s->m_TEX0.TW, 1 << s->m_TEX0.TH, s->m_TEX0.TBP0, s->m_TEX0.TBW);
+					}
 
 					if(b)
 					{
@@ -2267,3 +2293,51 @@ void GSTextureCache::PaletteMap::Clear() {
 	}
 }
 
+bool GSTextureCache::CheckOverlaps(std::unordered_set<uint32>& a_blocks, uint32 b_psm, uint32 b_w, uint32 b_h, uint32 b_bp, uint32 b_bw)
+{
+	// Check if any block used by a is also used by b
+	GSLocalMemory::psm_t b_psm_t = GSLocalMemory::m_psm[b_psm];
+	GSVector2i b_block_size = GetBlockSize(b_psm);
+	for (int x = 0; x < (int)b_w; x += b_block_size.x)
+	{
+		for (int y = 0; y < (int)b_h; y += b_block_size.y)
+		{
+			uint32 bpi = b_psm_t.bn(x, y, b_bp, b_bw);
+			if (a_blocks.find(bpi) != a_blocks.cend())
+			{
+				// a and b overlap because block bpi is used both by a and b
+				GL_CACHE("TC: CheckOverlaps detected common block at address 0x%x (x: %d, y: %d) for tex with BP 0x%x.", bpi, x, y, b_bp);
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
+GSVector2i GSTextureCache::GetBlockSize(uint32 psm)
+{
+	GSVector2i size;
+	switch (psm)
+	{
+	case PSM_PSMCT16:
+	case PSM_PSMCT16S:
+	case PSM_PSMZ16:
+	case PSM_PSMZ16S:
+		size.x = 16;
+		size.y = 8;
+		break;
+	case PSM_PSMT8:
+		size.x = 16;
+		size.y = 16;
+		break;
+	case PSM_PSMT4:
+		size.x = 32;
+		size.y = 16;
+		break;
+	default:
+		size.x = 8;
+		size.y = 8;
+		break;
+	}
+	return size;
+}

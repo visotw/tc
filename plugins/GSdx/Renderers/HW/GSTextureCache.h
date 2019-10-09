@@ -255,4 +255,6 @@ public:
 	void PrintMemoryUsage();
 
 	void AttachPaletteToSource(Source* s, uint16 pal, bool need_gs_texture);
+	static bool CheckOverlaps(std::unordered_set<uint32>& a_blocks, uint32 b_psm, uint32 b_w, uint32 b_h, uint32 b_bp, uint32 b_bw);
+	static GSVector2i GetBlockSize(uint32 psm);
 };
