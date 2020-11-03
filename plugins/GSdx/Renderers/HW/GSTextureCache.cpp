@@ -37,7 +37,6 @@ GSTextureCache::GSTextureCache(GSRenderer* r)
 		m_disable_partial_invalidation = theApp.GetConfigB("UserHacks_DisablePartialInvalidation");
 		m_can_convert_depth            = !theApp.GetConfigB("UserHacks_DisableDepthSupport");
 		m_cpu_fb_conversion            = theApp.GetConfigB("UserHacks_CPU_FB_Conversion");
-		m_texture_inside_rt            = theApp.GetConfigB("UserHacks_TextureInsideRt");
 		m_wrap_gs_mem                  = theApp.GetConfigB("wrap_gs_mem");
 	} else {
 		UserHacks_HalfPixelOffset      = false;
@@ -259,15 +258,12 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 		uint32 bw = TEX0.TBW;
 		int tw = 1 << TEX0.TW;
 		int th = 1 << TEX0.TH;
-		uint32 bp_end = psm_s.bn(tw - 1, th - 1, bp, bw);  // Valid only for color formats
 
 		// Arc the Lad finds the wrong surface here when looking for a depth stencil.
 		// Since we're currently not caching depth stencils (check ToDo in CreateSource) we should not look for it here.
 
 		// (Simply not doing this code at all makes a lot of previsouly missing stuff show (but breaks pretty much everything
 		// else.)
-
-		bool texture_inside_rt = ShallSearchTextureInsideRt();
 
 		for(auto t : m_dst[RenderTarget]) {
 			if(t->m_used && t->m_dirty.empty()) {
@@ -422,11 +418,6 @@ void GSTextureCache::ScaleTexture(GSTexture* texture)
 	}
 
 	texture->SetScale(scale_factor);
-}
-
-bool GSTextureCache::ShallSearchTextureInsideRt()
-{
-	return m_texture_inside_rt || (m_renderer->m_game.flags & CRC::Flags::TextureInsideRt);
 }
 
 GSTextureCache::Target* GSTextureCache::LookupTarget(const GIFRegTEX0& TEX0, int w, int h, int type, bool used, uint32 fbmask)

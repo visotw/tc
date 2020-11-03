@@ -176,7 +176,6 @@ public:
 	enum Flags
 	{
 		PointListPalette = 1,
-		TextureInsideRt = 2,
 	};
 
 	struct Game
