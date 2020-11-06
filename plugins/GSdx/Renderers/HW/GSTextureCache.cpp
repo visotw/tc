@@ -267,8 +267,12 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 		// (Simply not doing this code at all makes a lot of previsouly missing stuff show (but breaks pretty much everything
 		// else.)
 
-		for(auto t : m_dst[RenderTarget]) {
-			if(t->m_used && t->m_dirty.empty()) {
+		// First search round.
+		bool found_t = false;
+		for(auto t : m_dst[RenderTarget])
+		{
+			if(t->m_used && t->m_dirty.empty())
+			{
 				// Typical bug (MGS3 blue cloud):
 				// 1/ RT used as 32 bits => alpha channel written
 				// 2/ RT used as 24 bits => no update of alpha channel
@@ -278,7 +282,8 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 				// Solution: consider the RT as 32 bits if the alpha was used in the past
 				uint32 t_psm = (t->m_dirty_alpha) ? t->m_TEX0.PSM & ~0x1 : t->m_TEX0.PSM;
 
-				if (GSUtil::HasSharedBits(bp, psm, t->m_TEX0.TBP0, t_psm)) {
+				if (GSUtil::HasSharedBits(bp, psm, t->m_TEX0.TBP0, t_psm))
+				{
 					// It is a complex to convert the code in shader. As a reference, let's do it on the CPU, it will be slow but
 					// 1/ it just works :)
 					// 2/ even with upscaling
@@ -291,7 +296,7 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 						Read(t, t->m_valid);
 					else
 						dst = t;
-
+					found_t = true;
 					break;
 
 				} else if ((t->m_TEX0.TBW >= 16) && GSUtil::HasSharedBits(bp, psm, t->m_TEX0.TBP0 + t->m_TEX0.TBW * 0x10, t->m_TEX0.PSM)) {
@@ -300,35 +305,47 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 					// Half of the Target is TBW/2 pages * 8KB / (1 block * 256B) = 0x10
 					half_right = true;
 					dst = t;
-
+					found_t = true;
 					break;
+				} 
+			}
+		}
 
-				} else if (bw == t->m_TEX0.TBW && psm == PSM_PSMCT32 && t->m_TEX0.PSM == psm && t->m_TEX0.TBP0 < bp && t->m_end_block >= bp) {
-					// BW equality needed because CreateSource does not handle BW conversion.
-					// Only PSMCT32 to limit false hits.
-					// PSM equality needed because CreateSource does not handle PSM conversion.
-					// Only inclusive hit to limit false hits.
+		if (!found_t)
+		{
+			// Second search round.
+			for (auto t : m_dst[RenderTarget])
+			{
+				if (t->m_used && t->m_dirty.empty())
+				{
+					if (bw == t->m_TEX0.TBW && psm == PSM_PSMCT32 && t->m_TEX0.PSM == psm && t->m_TEX0.TBP0 < bp && t->m_end_block >= bp) {
+						// BW equality needed because CreateSource does not handle BW conversion.
+						// Only PSMCT32 to limit false hits.
+						// PSM equality needed because CreateSource does not handle PSM conversion.
+						// Only inclusive hit to limit false hits.
 
-					// Check if it is possible to hit with valid <x,y> offset on the given Target.
-					// Fixes Jak eyes rendering.
+						// Check if it is possible to hit with valid <x,y> offset on the given Target.
+						// Fixes Jak eyes rendering.
 
-					SurfaceOffsetKey sok;
-					sok.elems[0].psm = psm;
-					sok.elems[0].bp = bp;
-					sok.elems[0].bw = bw;
-					sok.elems[0].rect = GSVector4i(0, 0, tw, th);
-					sok.elems[1].psm = t->m_TEX0.PSM;
-					sok.elems[1].bp = t->m_TEX0.TBP0;
-					sok.elems[1].bw = t->m_TEX0.TBW;
-					sok.elems[1].rect = t->m_valid;
-					const SurfaceOffset so = ComputeSurfaceOffset(sok);
-					if (so.is_valid)
-					{
-						dst = t;
-						// Offset from Target to Source in Target coords.
-						x_offset = so.b2a_offset.x;
-						y_offset = so.b2a_offset.y;
-						break;
+						SurfaceOffsetKey sok;
+						sok.elems[0].psm = psm;
+						sok.elems[0].bp = bp;
+						sok.elems[0].bw = bw;
+						sok.elems[0].rect = GSVector4i(0, 0, tw, th);
+						sok.elems[1].psm = t->m_TEX0.PSM;
+						sok.elems[1].bp = t->m_TEX0.TBP0;
+						sok.elems[1].bw = t->m_TEX0.TBW;
+						sok.elems[1].rect = t->m_valid;
+						const SurfaceOffset so = ComputeSurfaceOffset(sok);
+						if (so.is_valid)
+						{
+							dst = t;
+							// Offset from Target to Source in Target coords.
+							x_offset = so.b2a_offset.x;
+							y_offset = so.b2a_offset.y;
+							found_t = true;
+							break;
+						}
 					}
 				}
 			}
@@ -342,7 +359,7 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 		//
 		// Sigh... They don't help us.
 
-		if (dst == NULL && m_can_convert_depth) {
+		if (!found_t && m_can_convert_depth) {
 			// Let's try a trick to avoid to use wrongly a depth buffer
 			// Unfortunately, I don't have any Arc the Lad testcase
 			//
