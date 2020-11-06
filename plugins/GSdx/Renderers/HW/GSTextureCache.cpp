@@ -311,14 +311,14 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const GIFRegTEX0& TEX0, con
 			}
 		}
 
-		if (!found_t)
+		if (!found_t && psm == PSM_PSMCT32)
 		{
 			// Second search round.
 			for (auto t : m_dst[RenderTarget])
 			{
 				if (t->m_used && t->m_dirty.empty())
 				{
-					if (bw == t->m_TEX0.TBW && psm == PSM_PSMCT32 && t->m_TEX0.PSM == psm && t->m_TEX0.TBP0 < bp && t->m_end_block >= bp) {
+					if (bw == t->m_TEX0.TBW && t->m_TEX0.PSM == psm && t->m_TEX0.TBP0 < bp && t->m_end_block >= bp) {
 						// BW equality needed because CreateSource does not handle BW conversion.
 						// Only PSMCT32 to limit false hits.
 						// PSM equality needed because CreateSource does not handle PSM conversion.
