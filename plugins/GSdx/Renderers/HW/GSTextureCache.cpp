@@ -2179,13 +2179,13 @@ GSTextureCache::SurfaceOffset GSTextureCache::ComputeSurfaceOffset(const Surface
 		if (a_el.bw == b_el.bw && a_el.psm == b_el.psm)
 		{
 			// A and B share same BW and PSM.
-			const float b2a_w = b2a_offset.width();
-			const float b2a_h = b2a_offset.height();
+			const int b2a_w = b2a_offset.width();
+			const int b2a_h = b2a_offset.height();
 			if (a_el.bp >= b_el.bp && a_bp_end <= b_bp_end)
 			{
 				// A included in B, b2a_offset size is expected to be the same as a_el size.
-				const float a_w = a_el.rect.width();
-				const float a_h = a_el.rect.height();
+				const int a_w = a_el.rect.width();
+				const int a_h = a_el.rect.height();
 				if (a_w != b2a_w || a_h != b2a_h)
 				{
 					GL_CACHE("TC: ComputeSurfaceOffset - B to A offset <%d,%d => %d,%d> was found (A included in B, same BW and PSM), but did not cover all data in A.",
