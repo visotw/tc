@@ -2134,8 +2134,6 @@ GSTextureCache::SurfaceOffset GSTextureCache::ComputeSurfaceOffset(const Surface
 	assert(!so.is_valid || b2a_offset.x < b_el.rect.z);
 	assert(!so.is_valid || b2a_offset.y >= b_el.rect.y);
 	assert(!so.is_valid || b2a_offset.y < b_el.rect.w);
-	const uint32 a_recomputed_bp = b_psm_s.bn(b2a_offset.x, b2a_offset.y, b_el.bp, b_el.bw);
-	assert(!so.is_valid || a_el.bp == a_recomputed_bp);
 
 	if (so.is_valid)
 	{
@@ -2187,8 +2185,6 @@ GSTextureCache::SurfaceOffset GSTextureCache::ComputeSurfaceOffset(const Surface
 	assert(!so.is_valid || b2a_offset.z <= b_el.rect.z);
 	assert(!so.is_valid || b2a_offset.w > b_el.rect.y);
 	assert(!so.is_valid || b2a_offset.w <= b_el.rect.w);
-	const uint32 a_recomputed_bp_end = b_psm_s.bn(b2a_offset.z - 1, b2a_offset.w - 1, b_el.bp, b_el.bw);
-	assert(!so.is_valid || a_bp_end == a_recomputed_bp_end);
 	assert(!so.is_valid || b2a_offset.z % dx == 0);
 	assert(!so.is_valid || b2a_offset.w % dy == 0);
 
@@ -2207,6 +2203,7 @@ GSTextureCache::SurfaceOffset GSTextureCache::ComputeSurfaceOffset(const Surface
 				const int a_h = a_el.rect.height();
 				if (a_w != b2a_w || a_h != b2a_h)
 				{
+					assert(false);
 					GL_CACHE("TC: ComputeSurfaceOffset - B to A offset <%d,%d => %d,%d> was found (A included in B, same BW and PSM), but did not cover all data in A.",
 						b2a_offset.x, b2a_offset.y, b2a_offset.z, b2a_offset.w);
 					so.is_valid = false;
